@@ -1,0 +1,10 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(npm run *)",
+      "Bash(curl -s http://localhost:5173)",
+      "Bash(npx vite *)",
+      "Read(//Users/hyemi/.claude/plugins/cache/claude-plugins-official/superpowers/5.0.7/**)"
+    ]
+  }
+}

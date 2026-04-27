@@ -2,9 +2,8 @@
   "permissions": {
     "allow": [
       "Bash(npm install *)",
-      "Bash(git rm *)",
-      "Bash(git commit -m ' *)",
-      "Bash(git add *)"
+      "Bash(*)",
+      "Bash(node -e \"require\\('./node_modules/date-fns/locale/ko/index.js'\\)\")"
     ]
   }
 }

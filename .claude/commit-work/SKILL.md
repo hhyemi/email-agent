@@ -1,6 +1,6 @@
 ---
 name: commit-work
-description: "Create high-quality git commits: review/stage intended changes, split into logical commits, and write clear commit messages (including Conventional Commits). Use when the user asks to commit, craft a commit message, stage changes, or split work into multiple commits."
+description: "Create high-quality git commits: review/stage intended changes, split into logical commits, and write clear commit messages (including Conventional Commits). Use when the user asks to commit, craft a commit message, stage changes, or split work into multiple commits., 커밋해줘"
 ---
 
 # Commit work
@@ -18,6 +18,7 @@ Make commits that are easy to review and safe to ship:
 - Single commit or multiple commits? (If unsure: default to multiple small commits when there are unrelated changes.)
 - Commit style: Conventional Commits are required.
 - Any rules: max subject length, required scopes.
+- Language: commit messages (subject and body) must be written in **Korean**.
 
 ## Workflow (checklist)
 
@@ -42,9 +43,9 @@ Make commits that are easy to review and safe to ship:
    - If you cannot describe it cleanly, the commit is probably too big or mixed; go back to step 2.
 6. Write the commit message
    - Use Conventional Commits (required):
-     - `type(scope): short summary`
+     - `type(scope): 짧은 요약` (subject must be in Korean)
      - blank line
-     - body (what/why, not implementation diary)
+     - 본문 (무엇을/왜 변경했는지, 구현 일지가 아닌 이유 중심으로, Korean)
      - footer (BREAKING CHANGE) if needed
    - Prefer an editor for multi-line messages: `git commit -v`
    - Use `references/commit-message-template.md` if helpful.
