@@ -102,6 +102,46 @@ app.post('/api/emails/read', async (req, res) => {
   }
 })
 
+// ── Star Toggle ───────────────────────────────────────────────────────────────
+app.post('/api/emails/star', async (req, res) => {
+  if (!fs.existsSync(TOKEN_PATH)) {
+    return res.status(401).json({ error: '인증이 필요합니다.' })
+  }
+  try {
+    const { id, starred } = req.body
+    const gmail = google.gmail({ version: 'v1', auth: oauth2Client })
+    await gmail.users.messages.modify({
+      userId: 'me',
+      id,
+      requestBody: starred
+        ? { addLabelIds: ['STARRED'] }
+        : { removeLabelIds: ['STARRED'] },
+    })
+    res.json({ success: true })
+  } catch (err) {
+    console.error('Star error:', err.message)
+    res.status(500).json({ error: err.message })
+  }
+})
+
+// ── Trash ─────────────────────────────────────────────────────────────────────
+app.post('/api/emails/trash', async (req, res) => {
+  if (!fs.existsSync(TOKEN_PATH)) {
+    return res.status(401).json({ error: '인증이 필요합니다.' })
+  }
+  try {
+    const { ids } = req.body
+    if (!ids?.length) return res.status(400).json({ error: 'ids 필요' })
+
+    const gmail = google.gmail({ version: 'v1', auth: oauth2Client })
+    await Promise.all(ids.map((id) => gmail.users.messages.trash({ userId: 'me', id })))
+    res.json({ success: true })
+  } catch (err) {
+    console.error('Trash error:', err.message)
+    res.status(500).json({ error: err.message })
+  }
+})
+
 // ── Email Routes ──────────────────────────────────────────────────────────────
 app.get('/api/emails', async (req, res) => {
   if (!fs.existsSync(TOKEN_PATH)) {
@@ -110,13 +150,21 @@ app.get('/api/emails', async (req, res) => {
 
   try {
     const gmail = google.gmail({ version: 'v1', auth: oauth2Client })
-    const limit = Math.min(parseInt(req.query.limit) || 10, 20)
+    const limit = Math.min(parseInt(req.query.limit) || 10, 50)
 
     const unreadOnly = req.query.unread === 'true'
+    const after = req.query.after
+    const before = req.query.before
+
+    const qParts = []
+    if (after) qParts.push(`after:${after}`)
+    if (before) qParts.push(`before:${before}`)
+
     const listRes = await gmail.users.messages.list({
       userId: 'me',
       maxResults: limit,
       labelIds: unreadOnly ? ['INBOX', 'UNREAD'] : ['INBOX'],
+      ...(qParts.length ? { q: qParts.join(' ') } : {}),
     })
 
     const messages = listRes.data.messages || []
@@ -134,6 +182,11 @@ app.get('/api/emails', async (req, res) => {
 
         const body = extractBody(detail.data.payload)
         const isBulk = !!(get('List-Unsubscribe') || get('Precedence'))
+        const isUnread = detail.data.labelIds?.includes('UNREAD') ?? false
+        const isStarred = detail.data.labelIds?.includes('STARRED') ?? false
+        const hasAttachment = (function checkParts(parts = []) {
+          return parts.some((p) => (p.filename && p.body?.attachmentId) || checkParts(p.parts))
+        })(detail.data.payload.parts)
 
         return {
           id: msg.id,
@@ -144,6 +197,9 @@ app.get('/api/emails', async (req, res) => {
           snippet: detail.data.snippet || '',
           body: body.slice(0, 2000),
           isBulk,
+          isUnread,
+          isStarred,
+          hasAttachment,
         }
       })
     )
@@ -178,9 +234,11 @@ app.post('/api/analyze', async (req, res) => {
 
   try {
     const results = []
-    for (const email of emails) {
-      results.push(await analyzeEmail(email))
-      await new Promise((r) => setTimeout(r, 1000))
+    const chunkSize = 5
+    for (let i = 0; i < emails.length; i += chunkSize) {
+      const chunk = emails.slice(i, i + chunkSize)
+      const chunkResults = await Promise.all(chunk.map(analyzeEmail))
+      results.push(...chunkResults)
     }
     res.json({ results })
   } catch (err) {
