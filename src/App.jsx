@@ -3,6 +3,7 @@ import DatePicker from 'react-datepicker'
 import { ko } from 'date-fns/locale'
 import 'react-datepicker/dist/react-datepicker.css'
 import EmailList from './components/EmailList'
+import SummaryCard from './components/SummaryCard'
 import { checkAuthStatus, fetchEmails, analyzeEmails, saveToNotion, markAsRead, trashEmails, toggleStar, logout } from './api'
 
 const CATEGORY_COLORS = {
@@ -58,6 +59,30 @@ export default function App() {
       .then(({ authenticated }) => setAuthStatus(authenticated ? 'authenticated' : 'unauthenticated'))
       .catch(() => setAuthStatus('unauthenticated'))
   }, [])
+
+  useEffect(() => {
+    if (authStatus !== 'authenticated') return
+    const autoLoad = async () => {
+      setPartialLoading('fetching', true)
+      try {
+        const { emails: data } = await fetchEmails(50, true)
+        setEmails(data)
+        setResults([])
+        setSelectedIds(new Set())
+        if (!data.length) return
+        setPartialLoading('fetching', false)
+        setPartialLoading('analyzing', true)
+        const { results: analysisData } = await analyzeEmails(data)
+        setResults(analysisData)
+      } catch (e) {
+        setError(e.message)
+      } finally {
+        setPartialLoading('fetching', false)
+        setPartialLoading('analyzing', false)
+      }
+    }
+    autoLoad()
+  }, [authStatus])
 
   const setPartialLoading = (key, value) =>
     setLoading((prev) => ({ ...prev, [key]: value }))
@@ -396,6 +421,11 @@ export default function App() {
                   페이지 보기 →
                 </a>
               </div>
+            )}
+
+            {/* Summary card */}
+            {results.length > 0 && (
+              <SummaryCard emails={emails} results={results} />
             )}
 
             {/* Filters */}
