@@ -6,7 +6,7 @@ export default function ReplyDraft({ draft }) {
   return (
     <div className="mt-3">
       <button
-        onClick={() => setOpen(!open)}
+        onClick={(e) => { e.stopPropagation(); setOpen(!open) }}
         className="flex items-center gap-1.5 text-xs font-semibold text-indigo-600 hover:text-indigo-800 transition-colors"
       >
         <svg

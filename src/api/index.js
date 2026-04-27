@@ -3,8 +3,11 @@ export async function checkAuthStatus() {
   return res.json()
 }
 
-export async function fetchEmails(limit = 10, unreadOnly = false) {
-  const res = await fetch(`/api/emails?limit=${limit}&unread=${unreadOnly}`)
+export async function fetchEmails(limit = 10, unreadOnly = false, after = null, before = null) {
+  const params = new URLSearchParams({ limit, unread: unreadOnly })
+  if (after) params.set('after', after)
+  if (before) params.set('before', before)
+  const res = await fetch(`/api/emails?${params}`)
   const data = await res.json()
   if (!res.ok) throw new Error(data.error || '이메일을 불러오지 못했습니다.')
   return data
@@ -40,6 +43,28 @@ export async function markAsRead(ids) {
   })
   const data = await res.json()
   if (!res.ok) throw new Error(data.error || '읽음 처리 실패')
+  return data
+}
+
+export async function toggleStar(id, starred) {
+  const res = await fetch('/api/emails/star', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ id, starred }),
+  })
+  const data = await res.json()
+  if (!res.ok) throw new Error(data.error || '별표 처리 실패')
+  return data
+}
+
+export async function trashEmails(ids) {
+  const res = await fetch('/api/emails/trash', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ ids }),
+  })
+  const data = await res.json()
+  if (!res.ok) throw new Error(data.error || '삭제 실패')
   return data
 }
 

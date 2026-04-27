@@ -1,6 +1,9 @@
 import { useState, useEffect } from 'react'
+import DatePicker from 'react-datepicker'
+import { ko } from 'date-fns/locale'
+import 'react-datepicker/dist/react-datepicker.css'
 import EmailList from './components/EmailList'
-import { checkAuthStatus, fetchEmails, analyzeEmails, saveToNotion, markAsRead, logout } from './api'
+import { checkAuthStatus, fetchEmails, analyzeEmails, saveToNotion, markAsRead, trashEmails, toggleStar, logout } from './api'
 
 const CATEGORY_COLORS = {
   '항공/여행':    'bg-sky-100 text-sky-800',
@@ -23,9 +26,24 @@ export default function App() {
   const [authStatus, setAuthStatus] = useState('loading') // 'loading' | 'unauthenticated' | 'authenticated'
   const [emails, setEmails] = useState([])
   const [results, setResults] = useState([])
-  const [loading, setLoading] = useState({ fetching: false, analyzing: false, saving: false, marking: false })
+  const [loading, setLoading] = useState({ fetching: false, analyzing: false, saving: false, marking: false, trashing: false })
   const [error, setError] = useState(null)
   const [notionUrl, setNotionUrl] = useState(null)
+  const [dateRange, setDateRange] = useState([null, null])
+  const [startDate, endDate] = dateRange
+  const [selectedIds, setSelectedIds] = useState(new Set())
+  const [hideAds, setHideAds] = useState(false)
+  const [minImportance, setMinImportance] = useState(1)
+
+  const toggleSelect = (id) =>
+    setSelectedIds((prev) => {
+      const next = new Set(prev)
+      next.has(id) ? next.delete(id) : next.add(id)
+      return next
+    })
+
+  const toggleSelectAll = () =>
+    setSelectedIds(selectedIds.size === emails.length ? new Set() : new Set(emails.map((e) => e.id)))
 
   useEffect(() => {
     const params = new URLSearchParams(window.location.search)
@@ -44,14 +62,22 @@ export default function App() {
   const setPartialLoading = (key, value) =>
     setLoading((prev) => ({ ...prev, [key]: value }))
 
-  const handleFetchEmails = async (unreadOnly = false) => {
+  const toGmailDate = (date) =>
+    date ? `${date.getFullYear()}/${date.getMonth() + 1}/${date.getDate()}` : null
+
+  const handleFetchEmails = async (unreadOnly = false, useRange = false) => {
     setError(null)
     setNotionUrl(null)
     setPartialLoading('fetching', true)
     try {
-      const { emails: data } = await fetchEmails(20, unreadOnly)
+      const after = useRange ? toGmailDate(startDate) : null
+      const before = useRange && endDate
+        ? toGmailDate(new Date(endDate.getTime() + 86400000))
+        : null
+      const { emails: data } = await fetchEmails(50, unreadOnly, after, before)
       setEmails(data)
       setResults([])
+      setSelectedIds(new Set())
     } catch (e) {
       setError(e.message)
     } finally {
@@ -88,15 +114,44 @@ export default function App() {
   }
 
   const handleMarkAsRead = async () => {
-    if (!emails.length) return
+    const ids = selectedIds.size > 0 ? [...selectedIds] : emails.map((e) => e.id)
+    if (!ids.length) return
     setError(null)
     setPartialLoading('marking', true)
     try {
-      await markAsRead(emails.map((e) => e.id))
+      await markAsRead(ids)
+      setEmails((prev) => prev.map((e) => ids.includes(e.id) ? { ...e, isUnread: false } : e))
+      setSelectedIds(new Set())
     } catch (e) {
       setError(e.message)
     } finally {
       setPartialLoading('marking', false)
+    }
+  }
+
+  const handleToggleStar = async (id, starred) => {
+    try {
+      await toggleStar(id, starred)
+      setEmails((prev) => prev.map((e) => e.id === id ? { ...e, isStarred: starred } : e))
+    } catch (e) {
+      setError(e.message)
+    }
+  }
+
+  const handleTrash = async () => {
+    const ids = selectedIds.size > 0 ? [...selectedIds] : []
+    if (!ids.length) return
+    setError(null)
+    setPartialLoading('trashing', true)
+    try {
+      await trashEmails(ids)
+      setEmails((prev) => prev.filter((e) => !ids.includes(e.id)))
+      setResults((prev) => prev.filter((r) => !ids.includes(r.id)))
+      setSelectedIds(new Set())
+    } catch (e) {
+      setError(e.message)
+    } finally {
+      setPartialLoading('trashing', false)
     }
   }
 
@@ -115,6 +170,14 @@ export default function App() {
   }, {})
 
   const needsReplyCount = results.filter((r) => r.needsReply).length
+
+  const visibleEmails = emails.filter((e) => {
+    const result = results.find((r) => r.id === e.id)
+    if (!result) return true
+    if (hideAds && result.isAd) return false
+    if (result.importance < minImportance) return false
+    return true
+  })
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-slate-50 via-blue-50 to-indigo-50">
@@ -181,6 +244,29 @@ export default function App() {
         {/* Authenticated */}
         {authStatus === 'authenticated' && (
           <>
+            {/* Date range picker */}
+            <div className="flex flex-wrap items-center gap-2 mb-3 p-3 bg-white/70 border border-gray-200 rounded-2xl">
+              <span className="text-sm text-gray-500 font-medium">📅 기간</span>
+              <DatePicker
+                selectsRange
+                startDate={startDate}
+                endDate={endDate}
+                onChange={(range) => setDateRange(range)}
+                locale={ko}
+                dateFormat="yyyy.MM.dd"
+                placeholderText="시작일 ~ 종료일"
+                isClearable
+                className="text-sm border border-gray-200 rounded-lg px-3 py-1.5 w-52 focus:outline-none focus:ring-2 focus:ring-blue-300"
+              />
+              <button
+                onClick={() => handleFetchEmails(false, true)}
+                disabled={loading.fetching || !startDate}
+                className="px-4 py-1.5 bg-teal-600 text-white rounded-lg text-sm font-medium hover:bg-teal-700 active:scale-95 disabled:opacity-40 disabled:cursor-not-allowed transition-all"
+              >
+                {loading.fetching ? '불러오는 중...' : '기간 조회'}
+              </button>
+            </div>
+
             {/* Action buttons */}
             <div className="flex flex-wrap gap-3 mb-5">
               <button
@@ -242,7 +328,24 @@ export default function App() {
                       처리 중...
                     </>
                   ) : (
-                    <>✅ 읽음 처리</>
+                    <>✅ 읽음 처리{selectedIds.size > 0 && ` (${selectedIds.size})`}</>
+                  )}
+                </button>
+              )}
+
+              {selectedIds.size > 0 && (
+                <button
+                  onClick={handleTrash}
+                  disabled={loading.trashing}
+                  className="px-5 py-2.5 bg-red-500 text-white rounded-xl font-medium hover:bg-red-600 active:scale-95 disabled:opacity-50 disabled:cursor-not-allowed transition-all shadow-sm flex items-center gap-2"
+                >
+                  {loading.trashing ? (
+                    <>
+                      <span className="animate-spin inline-block w-4 h-4 border-2 border-white border-t-transparent rounded-full" />
+                      삭제 중...
+                    </>
+                  ) : (
+                    <>🗑️ 삭제 ({selectedIds.size})</>
                   )}
                 </button>
               )}
@@ -295,28 +398,93 @@ export default function App() {
               </div>
             )}
 
-            {/* Category summary chips */}
+            {/* Filters */}
             {results.length > 0 && (
-              <div className="flex flex-wrap gap-2 mb-6">
-                {Object.entries(categorySummary).map(([cat, count]) => (
-                  <span
-                    key={cat}
-                    className={`px-3 py-1 rounded-full text-xs font-bold ${CATEGORY_COLORS[cat] ?? 'bg-gray-100 text-gray-700'}`}
-                  >
-                    {cat} {count}건
+              <div className="flex flex-wrap items-center gap-4 mb-4 px-4 py-3 bg-white/70 border border-gray-200 rounded-2xl">
+                <button
+                  onClick={() => setHideAds((v) => !v)}
+                  className={`flex items-center gap-2 text-sm font-medium px-3 py-1.5 rounded-lg transition-all ${hideAds ? 'bg-red-100 text-red-700 border border-red-200' : 'bg-gray-100 text-gray-500 border border-gray-200'}`}
+                >
+                  <span>{hideAds ? '📢' : '📢'}</span>
+                  광고 {hideAds ? '숨김' : '표시'}
+                </button>
+
+                <div className="flex items-center gap-3 flex-1 min-w-48">
+                  <span className="text-sm text-gray-500 shrink-0">중요도</span>
+                  <input
+                    type="range"
+                    min={1}
+                    max={10}
+                    value={minImportance}
+                    onChange={(e) => setMinImportance(Number(e.target.value))}
+                    className="flex-1 accent-blue-500"
+                  />
+                  <span className="text-sm font-bold text-blue-600 w-12 shrink-0">
+                    {minImportance === 1 ? '전체' : `${minImportance}점+`}
                   </span>
-                ))}
-                {needsReplyCount > 0 && (
-                  <span className="px-3 py-1 rounded-full text-xs font-bold bg-orange-100 text-orange-800">
-                    ✉️ 답장 필요 {needsReplyCount}건
+                </div>
+
+                {(hideAds || minImportance > 1) && (
+                  <span className="text-xs text-gray-400">
+                    {visibleEmails.length} / {emails.length}개 표시
                   </span>
                 )}
               </div>
             )}
 
+            {/* Category summary chips */}
+            {results.length > 0 && (
+              <div className="flex flex-wrap gap-2 mb-6">
+                {Object.entries(categorySummary).map(([cat, count]) => {
+                  const ids = results.filter((r) => r.category === cat).map((r) => r.id)
+                  const allSelected = ids.every((id) => selectedIds.has(id))
+                  return (
+                    <button
+                      key={cat}
+                      onClick={() => {
+                        if (allSelected) {
+                          setSelectedIds((prev) => { const next = new Set(prev); ids.forEach((id) => next.delete(id)); return next })
+                        } else {
+                          setSelectedIds((prev) => new Set([...prev, ...ids]))
+                        }
+                      }}
+                      className={`px-3 py-1 rounded-full text-xs font-bold transition-all ${allSelected ? 'ring-2 ring-offset-1 ring-blue-400' : ''} ${CATEGORY_COLORS[cat] ?? 'bg-gray-100 text-gray-700'} hover:opacity-80 cursor-pointer`}
+                    >
+                      {cat} {count}건
+                    </button>
+                  )
+                })}
+                {needsReplyCount > 0 && (() => {
+                  const ids = results.filter((r) => r.needsReply).map((r) => r.id)
+                  const allSelected = ids.every((id) => selectedIds.has(id))
+                  return (
+                    <button
+                      onClick={() => {
+                        if (allSelected) {
+                          setSelectedIds((prev) => { const next = new Set(prev); ids.forEach((id) => next.delete(id)); return next })
+                        } else {
+                          setSelectedIds((prev) => new Set([...prev, ...ids]))
+                        }
+                      }}
+                      className={`px-3 py-1 rounded-full text-xs font-bold transition-all ${allSelected ? 'ring-2 ring-offset-1 ring-blue-400' : ''} bg-orange-100 text-orange-800 hover:opacity-80 cursor-pointer`}
+                    >
+                      ✉️ 답장 필요 {needsReplyCount}건
+                    </button>
+                  )
+                })()}
+              </div>
+            )}
+
             {/* Email list */}
             {emails.length > 0 ? (
-              <EmailList emails={emails} results={results} />
+              <EmailList
+                emails={visibleEmails}
+                results={results}
+                selectedIds={selectedIds}
+                onToggleSelect={toggleSelect}
+                onToggleSelectAll={toggleSelectAll}
+                onToggleStar={handleToggleStar}
+              />
             ) : (
               <div className="flex flex-col items-center justify-center py-24 text-gray-400">
                 <div className="text-5xl mb-4">📭</div>

@@ -17,26 +17,63 @@ const CATEGORY = {
   '기타':       { bg: 'bg-gray-100',    text: 'text-gray-600',    border: 'border-gray-200' },
 }
 
+function formatKST(dateStr) {
+  const date = new Date(dateStr)
+  if (isNaN(date)) return dateStr
+  const kst = new Date(date.getTime() + 9 * 60 * 60 * 1000)
+  const Y = kst.getUTCFullYear()
+  const M = String(kst.getUTCMonth() + 1).padStart(2, '0')
+  const D = String(kst.getUTCDate()).padStart(2, '0')
+  const h = String(kst.getUTCHours()).padStart(2, '0')
+  const m = String(kst.getUTCMinutes()).padStart(2, '0')
+  return `${Y}-${M}-${D} ${h}:${m}`
+}
+
 function importanceBadge(score) {
   if (score >= 8) return 'bg-red-500 text-white'
   if (score >= 5) return 'bg-amber-400 text-white'
   return 'bg-emerald-500 text-white'
 }
 
-export default function EmailCard({ email, result }) {
+export default function EmailCard({ email, result, selected, onToggleSelect, onToggleStar }) {
   const style = CATEGORY[result?.category] ?? { bg: 'bg-gray-100', text: 'text-gray-800', border: 'border-gray-200' }
+  const gmailUrl = `https://mail.google.com/mail/u/0/#inbox/${email.id}`
 
   return (
     <div
-      className={`bg-white rounded-2xl border-2 ${result ? style.border : 'border-gray-200'} p-5 shadow-sm hover:shadow-md transition-shadow`}
+      className={`bg-white rounded-2xl border-2 ${selected ? 'border-blue-400 bg-blue-50/30' : result ? style.border : 'border-gray-200'} p-5 shadow-sm hover:shadow-md transition-shadow cursor-pointer`}
+      onClick={() => window.open(gmailUrl, '_blank', 'noopener,noreferrer')}
     >
       {/* Header row */}
       <div className="flex items-start gap-3">
+        <input
+          type="checkbox"
+          checked={selected}
+          onChange={() => onToggleSelect(email.id)}
+          onClick={(e) => e.stopPropagation()}
+          className="mt-1 w-4 h-4 accent-blue-500 cursor-pointer shrink-0"
+        />
+        {email.isUnread && (
+          <span className="mt-1 w-2 h-2 rounded-full bg-blue-500 shrink-0" />
+        )}
         <div className="flex-1 min-w-0">
-          <h3 className="font-semibold text-gray-900 truncate leading-snug">{email.subject}</h3>
+          <h3 className={`truncate leading-snug ${email.isUnread ? 'font-bold text-gray-900' : 'font-medium text-gray-600'}`}>
+            {email.subject}
+          </h3>
           <p className="text-xs text-gray-500 mt-0.5 truncate">{email.from}</p>
-          <p className="text-xs text-gray-400 mt-0.5">{email.date}</p>
+          <p className="text-xs text-gray-400 mt-0.5 flex items-center gap-1.5">
+            {formatKST(email.date)}
+            {email.hasAttachment && <span title="첨부파일 있음">📎</span>}
+          </p>
         </div>
+
+        <button
+          onClick={(e) => { e.stopPropagation(); onToggleStar(email.id, !email.isStarred) }}
+          className="shrink-0 text-lg leading-none hover:scale-110 transition-transform"
+          title={email.isStarred ? '별표 해제' : '별표 표시'}
+        >
+          {email.isStarred ? '⭐' : '☆'}
+        </button>
 
         {result && (
           <div className="flex flex-col items-end gap-2 shrink-0">
@@ -65,12 +102,19 @@ export default function EmailCard({ email, result }) {
         <p className="mt-2 text-sm text-gray-400 line-clamp-2">{email.snippet}</p>
       )}
 
-      {/* Reply badge */}
-      {result?.needsReply && (
-        <div className="mt-3">
-          <span className="inline-flex items-center gap-1 text-xs font-semibold text-orange-700 bg-orange-50 border border-orange-200 rounded-full px-2.5 py-0.5">
-            ✉️ 답장 필요
-          </span>
+      {/* Badges */}
+      {result && (result.needsReply || result.isAd) && (
+        <div className="mt-3 flex flex-wrap gap-1.5">
+          {result.needsReply && (
+            <span className="inline-flex items-center gap-1 text-xs font-semibold text-orange-700 bg-orange-50 border border-orange-200 rounded-full px-2.5 py-0.5">
+              ✉️ 답장 필요
+            </span>
+          )}
+          {result.isAd && (
+            <span className="inline-flex items-center gap-1 text-xs font-semibold text-gray-500 bg-gray-100 border border-gray-200 rounded-full px-2.5 py-0.5">
+              📢 광고
+            </span>
+          )}
         </div>
       )}
 
