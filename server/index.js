@@ -233,13 +233,7 @@ app.post('/api/analyze', async (req, res) => {
   }
 
   try {
-    const results = []
-    const chunkSize = 5
-    for (let i = 0; i < emails.length; i += chunkSize) {
-      const chunk = emails.slice(i, i + chunkSize)
-      const chunkResults = await Promise.all(chunk.map(analyzeEmail))
-      results.push(...chunkResults)
-    }
+    const results = await Promise.all(emails.map(analyzeEmail))
     res.json({ results })
   } catch (err) {
     console.error('Analyze error:', err.message)
@@ -264,7 +258,24 @@ async function withRetry(fn, retries = 3, delay = 5000) {
   }
 }
 
+function fastClassify(email) {
+  const isAd = email.isBulk || (email.labelIds ?? []).includes('CATEGORY_PROMOTIONS')
+  if (!isAd) return null
+  return {
+    id: email.id,
+    category: '기타',
+    importance: 2,
+    isAd: true,
+    needsReply: false,
+    summary: email.snippet?.slice(0, 50) || '광고/홍보 메일',
+    replyDraft: null,
+  }
+}
+
 async function analyzeEmail(email) {
+  const fast = fastClassify(email)
+  if (fast) return fast
+
   const prompt = `다음 이메일을 분석해주세요.
 
 발신자: ${email.from}
@@ -273,7 +284,7 @@ async function analyzeEmail(email) {
 날짜: ${email.date}
 대량발송여부: ${email.isBulk ? '예 (List-Unsubscribe 헤더 감지됨)' : '아니오'}
 내용:
-${email.body || email.snippet}
+${(email.body || email.snippet || '').slice(0, 500)}
 
 [분석 기준]
 - category: 아래 목록 중 내용에 가장 맞는 것 하나 선택
