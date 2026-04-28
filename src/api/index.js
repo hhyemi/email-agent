@@ -24,17 +24,6 @@ export async function runAgent(goal) {
   return data
 }
 
-export async function saveToNotion(emails, results) {
-  const res = await fetch('/api/notion/save', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ emails, results }),
-  })
-  const data = await res.json()
-  if (!res.ok) throw new Error(data.error || 'Notion 저장에 실패했습니다.')
-  return data
-}
-
 export async function markAsRead(ids) {
   const res = await fetch('/api/emails/read', {
     method: 'POST',

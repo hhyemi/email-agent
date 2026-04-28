@@ -12,7 +12,7 @@ export function createAgentModel(genAI) {
 
 export async function runAgentLoop({ model, executor, goal }) {
   const chat = model.startChat()
-  let result = await chat.sendMessage(goal)
+  let result = await withRetry(() => chat.sendMessage(goal))
   let notionResult = null
   let analyzedEmails = []
   let rawEmails = []
@@ -50,8 +50,24 @@ export async function runAgentLoop({ model, executor, goal }) {
       })
     )
 
-    result = await chat.sendMessage(toolResponses)
+    result = await withRetry(() => chat.sendMessage(toolResponses))
   }
 
   throw new Error('에이전트 루프가 최대 반복 횟수를 초과했습니다.')
+}
+
+async function withRetry(fn, retries = 3, delay = 5000) {
+  for (let i = 0; i < retries; i++) {
+    try {
+      return await fn()
+    } catch (err) {
+      const isRetryable = err.message?.includes('503') || err.message?.includes('429')
+      if (isRetryable && i < retries - 1) {
+        await new Promise((r) => setTimeout(r, delay))
+        delay *= 2
+      } else {
+        throw err
+      }
+    }
+  }
 }
