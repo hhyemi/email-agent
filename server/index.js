@@ -7,6 +7,8 @@ import { Client as NotionClient } from '@notionhq/client'
 import fs from 'fs'
 import path from 'path'
 import { fileURLToPath } from 'url'
+import { createExecutor } from './agent/executor.js'
+import { createAgentModel, runAgentLoop } from './agent/loop.js'
 
 dotenv.config()
 
@@ -38,7 +40,6 @@ oauth2Client.on('tokens', (tokens) => {
 
 // ── API Clients ───────────────────────────────────────────────────────────────
 const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY)
-const gemini = genAI.getGenerativeModel({ model: 'gemini-2.5-flash-lite' })
 const notion = new NotionClient({ auth: process.env.NOTION_API_KEY })
 
 // ── Auth Routes ───────────────────────────────────────────────────────────────
@@ -225,109 +226,23 @@ function extractBody(payload) {
   return ''
 }
 
-// ── Analyze Route ─────────────────────────────────────────────────────────────
-app.post('/api/analyze', async (req, res) => {
-  const { emails } = req.body
-  if (!emails?.length) {
-    return res.status(400).json({ error: '분석할 이메일이 없습니다.' })
+// ── Agent Route ───────────────────────────────────────────────────────────────
+app.post('/api/agent', async (req, res) => {
+  if (!fs.existsSync(TOKEN_PATH)) {
+    return res.status(401).json({ error: '인증이 필요합니다.' })
   }
-
   try {
-    const results = await Promise.all(emails.map(analyzeEmail))
-    res.json({ results })
+    const { goal = '안읽은 이메일을 분석해서 Notion에 저장해줘' } = req.body
+    const gmailClient = google.gmail({ version: 'v1', auth: oauth2Client })
+    const executor = createExecutor({ gmailClient, notion, databaseId: process.env.NOTION_DATABASE_ID })
+    const model = createAgentModel(genAI)
+    const { message, notionUrl, count, analyzedEmails, rawEmails } = await runAgentLoop({ model, executor, goal })
+    res.json({ message, notionUrl, count, analyzedEmails, rawEmails })
   } catch (err) {
-    console.error('Analyze error:', err.message)
+    console.error('Agent error:', err.message)
     res.status(500).json({ error: err.message })
   }
 })
-
-async function withRetry(fn, retries = 3, delay = 5000) {
-  for (let i = 0; i < retries; i++) {
-    try {
-      return await fn()
-    } catch (err) {
-      const isRetryable = err.message?.includes('503') || err.message?.includes('429')
-      if (isRetryable && i < retries - 1) {
-        console.log(`재시도 ${i + 1}/${retries - 1} (${delay / 1000}초 후)...`)
-        await new Promise((r) => setTimeout(r, delay))
-        delay *= 2
-      } else {
-        throw err
-      }
-    }
-  }
-}
-
-function fastClassify(email) {
-  const isAd = email.isBulk || (email.labelIds ?? []).includes('CATEGORY_PROMOTIONS')
-  if (!isAd) return null
-  return {
-    id: email.id,
-    category: '기타',
-    importance: 2,
-    isAd: true,
-    needsReply: false,
-    summary: email.snippet?.slice(0, 50) || '광고/홍보 메일',
-    replyDraft: null,
-  }
-}
-
-async function analyzeEmail(email) {
-  const fast = fastClassify(email)
-  if (fast) return fast
-
-  const prompt = `다음 이메일을 분석해주세요.
-
-발신자: ${email.from}
-수신자: ${email.to}
-제목: ${email.subject}
-날짜: ${email.date}
-대량발송여부: ${email.isBulk ? '예 (List-Unsubscribe 헤더 감지됨)' : '아니오'}
-내용:
-${(email.body || email.snippet || '').slice(0, 500)}
-
-[분석 기준]
-- category: 아래 목록 중 내용에 가장 맞는 것 하나 선택
-  항공/여행 | 뉴스 | 경제/금융 | 쇼핑 | 구독/서비스 | 공공/관공서 | SNS/커뮤니티 | 건강/헬스 | 개인/지인 | 뉴스레터 | 적립/마일리지 | 예약/티켓 | 영수증 | 기타
-
-- importance (1~10 기준):
-  9~10: 보안 알림, 계좌/결제 이상, 긴급 대응 필요
-  7~8: 개인적으로 보낸 메일, 업무/계약 관련, 답변 필요한 질문
-  4~6: 일반 정보 안내, 예약 확인, 영수증
-  1~3: 뉴스레터, 광고, 대량 발송 메일, 자동 발송
-
-- isAd: 대량발송여부가 "예"이거나, 수신자가 나만이 아닌 경우, 마케팅/홍보 목적이면 true
-
-- needsReply: 발신자가 답변을 기대하는 개인 메일일 때만 true. 자동발송/광고/뉴스레터는 false
-
-아래 JSON 형식으로만 응답해주세요 (마크다운 코드블록 없이, 순수 JSON만):
-{
-  "category": "위 목록 중 하나",
-  "importance": 1~10 사이의 정수,
-  "isAd": true 또는 false,
-  "needsReply": true 또는 false,
-  "summary": "한줄 요약 (50자 이내)",
-  "replyDraft": "답장 초안 (needsReply가 false이면 null)"
-}`
-
-  const response = await withRetry(() => gemini.generateContent(prompt))
-
-  try {
-    const text = response.response.text()
-    const match = text.match(/\{[\s\S]*\}/)
-    const parsed = JSON.parse(match[0])
-    return { id: email.id, ...parsed }
-  } catch {
-    return {
-      id: email.id,
-      category: '업무',
-      importance: 5,
-      needsReply: false,
-      summary: '분석 결과를 파싱할 수 없습니다.',
-      replyDraft: null,
-    }
-  }
-}
 
 // ── Notion Route ──────────────────────────────────────────────────────────────
 app.post('/api/notion/save', async (req, res) => {
