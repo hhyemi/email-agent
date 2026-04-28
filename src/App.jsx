@@ -4,7 +4,7 @@ import { ko } from 'date-fns/locale'
 import 'react-datepicker/dist/react-datepicker.css'
 import EmailList from './components/EmailList'
 import SummaryCard from './components/SummaryCard'
-import { checkAuthStatus, fetchEmails, analyzeEmails, saveToNotion, markAsRead, trashEmails, toggleStar, logout } from './api'
+import { checkAuthStatus, fetchEmails, runAgent, markAsRead, trashEmails, toggleStar, logout } from './api'
 
 const CATEGORY_COLORS = {
   '항공/여행':    'bg-sky-100 text-sky-800',
@@ -27,7 +27,7 @@ export default function App() {
   const [authStatus, setAuthStatus] = useState('loading') // 'loading' | 'unauthenticated' | 'authenticated'
   const [emails, setEmails] = useState([])
   const [results, setResults] = useState([])
-  const [loading, setLoading] = useState({ fetching: false, analyzing: false, saving: false, marking: false, trashing: false })
+  const [loading, setLoading] = useState({ fetching: false, running: false, marking: false, trashing: false })
   const [error, setError] = useState(null)
   const [notionUrl, setNotionUrl] = useState(null)
   const [dateRange, setDateRange] = useState([null, null])
@@ -69,16 +69,10 @@ export default function App() {
         setEmails(data)
         setResults([])
         setSelectedIds(new Set())
-        if (!data.length) return
-        setPartialLoading('fetching', false)
-        setPartialLoading('analyzing', true)
-        const { results: analysisData } = await analyzeEmails(data)
-        setResults(analysisData)
       } catch (e) {
         setError(e.message)
       } finally {
         setPartialLoading('fetching', false)
-        setPartialLoading('analyzing', false)
       }
     }
     autoLoad()
@@ -110,31 +104,34 @@ export default function App() {
     }
   }
 
-  const handleAnalyze = async () => {
-    if (!emails.length) return
+  const handleRunAgent = async () => {
     setError(null)
-    setPartialLoading('analyzing', true)
+    setNotionUrl(null)
+    setPartialLoading('running', true)
     try {
-      const { results: data } = await analyzeEmails(emails)
-      setResults(data)
+      const { notionUrl: url, analyzedEmails, rawEmails } = await runAgent(
+        '안읽은 이메일을 가져와서 분석하고 Notion에 저장해줘'
+      )
+      if (rawEmails?.length) {
+        setEmails(rawEmails)
+        setSelectedIds(new Set())
+      }
+      if (analyzedEmails?.length) {
+        setResults(analyzedEmails.map((e) => ({
+          id: e.id,
+          category: e.category,
+          importance: e.importance,
+          isAd: e.isAd,
+          needsReply: e.needsReply,
+          summary: e.summary,
+          replyDraft: e.replyDraft,
+        })))
+      }
+      if (url) setNotionUrl(url)
     } catch (e) {
       setError(e.message)
     } finally {
-      setPartialLoading('analyzing', false)
-    }
-  }
-
-  const handleSaveToNotion = async () => {
-    if (!results.length) return
-    setError(null)
-    setPartialLoading('saving', true)
-    try {
-      const { pageUrl } = await saveToNotion(emails, results)
-      setNotionUrl(pageUrl)
-    } catch (e) {
-      setError(e.message)
-    } finally {
-      setPartialLoading('saving', false)
+      setPartialLoading('running', false)
     }
   }
 
@@ -211,7 +208,7 @@ export default function App() {
         <div className="max-w-5xl mx-auto px-4 py-3.5 flex items-center justify-between">
           <div>
             <h1 className="text-lg font-bold text-gray-900">📧 이메일 분류 에이전트</h1>
-            <p className="text-xs text-gray-400">Gmail + Claude AI 자동 분석</p>
+            <p className="text-xs text-gray-400">Gmail + Gemini 에이전트 자동 분석</p>
           </div>
 
           {authStatus === 'authenticated' && (
@@ -324,22 +321,20 @@ export default function App() {
                 )}
               </button>
 
-              {emails.length > 0 && (
-                <button
-                  onClick={handleAnalyze}
-                  disabled={loading.analyzing}
+              <button
+                  onClick={handleRunAgent}
+                  disabled={loading.running}
                   className="px-5 py-2.5 bg-violet-600 text-white rounded-xl font-medium hover:bg-violet-700 active:scale-95 disabled:opacity-50 disabled:cursor-not-allowed transition-all shadow-sm flex items-center gap-2"
                 >
-                  {loading.analyzing ? (
+                  {loading.running ? (
                     <>
                       <span className="animate-spin inline-block w-4 h-4 border-2 border-white border-t-transparent rounded-full" />
-                      AI 분석 중...
+                      에이전트 실행 중...
                     </>
                   ) : (
-                    <>🤖 AI 분석하기</>
+                    <>🤖 에이전트 실행 →</>
                   )}
                 </button>
-              )}
 
               {emails.length > 0 && (
                 <button
@@ -375,22 +370,6 @@ export default function App() {
                 </button>
               )}
 
-              {results.length > 0 && (
-                <button
-                  onClick={handleSaveToNotion}
-                  disabled={loading.saving}
-                  className="px-5 py-2.5 bg-gray-800 text-white rounded-xl font-medium hover:bg-gray-900 active:scale-95 disabled:opacity-50 disabled:cursor-not-allowed transition-all shadow-sm flex items-center gap-2"
-                >
-                  {loading.saving ? (
-                    <>
-                      <span className="animate-spin inline-block w-4 h-4 border-2 border-white border-t-transparent rounded-full" />
-                      저장 중...
-                    </>
-                  ) : (
-                    <>📝 Notion에 저장</>
-                  )}
-                </button>
-              )}
             </div>
 
             {/* Error banner */}
