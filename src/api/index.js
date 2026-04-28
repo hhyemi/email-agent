@@ -13,14 +13,14 @@ export async function fetchEmails(limit = 10, unreadOnly = false, after = null, 
   return data
 }
 
-export async function analyzeEmails(emails) {
-  const res = await fetch('/api/analyze', {
+export async function runAgent(goal) {
+  const res = await fetch('/api/agent', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ emails }),
+    body: JSON.stringify({ goal }),
   })
   const data = await res.json()
-  if (!res.ok) throw new Error(data.error || '분석에 실패했습니다.')
+  if (!res.ok) throw new Error(data.error || '에이전트 실행에 실패했습니다.')
   return data
 }
 
