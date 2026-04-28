@@ -23,3 +23,6 @@ Thumbs.db
 # 에디터
 .vscode/
 .idea/
+
+# 워크트리
+.worktrees/
