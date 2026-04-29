@@ -7,6 +7,7 @@ export function createAgentModel(genAI) {
     model: 'gemini-2.5-flash-lite',
     tools: [{ functionDeclarations: toolDeclarations }],
     systemInstruction: SYSTEM_PROMPT,
+    toolConfig: { functionCallingConfig: { mode: 'ANY' } },
   })
 }
 
@@ -24,6 +25,17 @@ export async function runAgentLoop({ model, executor, goal }) {
     if (!functionCalls || functionCalls.length === 0) {
       return {
         message: response.text(),
+        notionUrl: notionResult?.notionUrl ?? null,
+        count: notionResult?.count ?? 0,
+        analyzedEmails,
+        rawEmails,
+      }
+    }
+
+    const finishCall = functionCalls.find((c) => c.name === 'finish')
+    if (finishCall) {
+      return {
+        message: finishCall.args.message,
         notionUrl: notionResult?.notionUrl ?? null,
         count: notionResult?.count ?? 0,
         analyzedEmails,

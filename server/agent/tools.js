@@ -1,5 +1,7 @@
 export const SYSTEM_PROMPT = `당신은 이메일 관리 에이전트입니다. 사용자의 목표를 달성하기 위해 제공된 툴을 사용하세요.
 
+중요: 사용자에게 질문하거나 확인을 구하지 마세요. 목표를 받으면 즉시 툴을 호출하여 실행하세요. 이메일 수가 명시되지 않은 경우 기본값 10개로 진행하세요. 모든 작업이 완료되면 반드시 finish 툴을 호출하여 결과를 반환하세요.
+
 이메일 분석 기준:
 - category: 항공/여행 | 뉴스 | 경제/금융 | 쇼핑 | 구독/서비스 | 공공/관공서 | SNS/커뮤니티 | 건강/헬스 | 개인/지인 | 뉴스레터 | 적립/마일리지 | 예약/티켓 | 영수증 | 기타
 - importance (1~10): 9~10 보안/긴급, 7~8 개인/업무, 4~6 일반 안내, 1~3 광고/뉴스레터
@@ -85,6 +87,17 @@ export const toolDeclarations = [
         ids: { type: 'array', items: { type: 'string' }, description: '삭제할 이메일 ID 배열' },
       },
       required: ['ids'],
+    },
+  },
+  {
+    name: 'finish',
+    description: '모든 작업이 완료되었을 때 호출합니다. 최종 결과 메시지를 반환합니다.',
+    parameters: {
+      type: 'object',
+      properties: {
+        message: { type: 'string', description: '작업 완료 메시지' },
+      },
+      required: ['message'],
     },
   },
 ]
